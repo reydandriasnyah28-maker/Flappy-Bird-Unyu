@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Flappy Burung</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+    body {
+      background: linear-gradient(to bottom, #70c5ce, #d9edf7);
+      overflow: hidden; height: 100vh; touch-action: manipulation;
+    }
+    #gameCanvas { display: block; margin: 0 auto; background: linear-gradient(to bottom, #70c5ce 70%, #ded895 70%); }
+
+  .overlay {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      background: rgba(0,0,0,0.7); color: white; text-align: center; z-index: 10;
+    }
+  .overlay h1 { font-size: 2.5rem; margin-bottom: 1rem; text-shadow: 2px 2px 4px #000; }
+  .overlay input {
+      padding: 0.8rem 1rem; font-size: 1.1rem; border: none; border-radius: 8px;
+      margin: 1rem 0; width: 80%; max-width: 300px; text-align: center;
+    }
+  .btn {
+      background: #f1c40f; color: #333; border: none;
+      padding: 1rem 2rem; font-size: 1.2rem; font-weight: bold;
+      border-radius: 50px; cursor: pointer; margin: 0.5rem;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    }
+  .btn:hover { background: #f39c12; }
+
+    #score {
+      position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+      font-size: 3rem; font-weight: bold; color: white; text-shadow: 2px 2px 4px #000; z-index: 5;
+    }
+
+    #leaderboard {
+      background: rgba(255,255,255,0.95); color: #333;
+      padding: 1.5rem; border-radius: 12px; width: 90%; max-width: 400px;
+      max-height: 60vh; overflow-y: auto;
+    }
+    #leaderboard h2 { color: #e67e22; margin-bottom: 1rem; }
+  .leaderboard-row {
+      display: flex; justify-content: space-between; padding: 0.5rem;
+      border-bottom: 1px solid #eee; font-weight: bold;
+    }
+  .leaderboard-row:nth-child(1) { color: #FFD700; }
+  .leaderboard-row:nth-child(2) { color: #C0C0C0; }
+  .leaderboard-row:nth-child(3) { color: #CD7F32; }
+
+  .hide { display: none; }
+  </style>
+</head>
+<body>
+  <div id="score" class="hide">0</div>
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- Menu Awal: Input Nama -->
+  <div class="overlay" id="startScreen">
+    <h1>🐦 Flappy Burung</h1>
+    <p>Tap/Spasi buat terbang, jangan nabrak pipa!</p>
+    <input type="text" id="playerName" placeholder="Masukin nama kamu" maxlength="12">
+    <button class="btn" onclick="startGame()">Mulai Main</button>
+    <button class="btn" onclick="showLeaderboard()">Leaderboard</button>
+  </div>
+
+  <!-- Game Over -->
+  <div class="overlay hide" id="gameOverScreen">
+    <h1>Game Over!</h1>
+    <p style="font-size: 1.5rem;">Skor: <span id="finalScore">0</span></p>
+    <button class="btn" onclick="startGame()">Main Lagi</button>
+    <button class="btn" onclick="showLeaderboard()">Leaderboard</button>
+    <button class="btn" onclick="backToMenu()">Ganti Nama</button>
+  </div>
+
+  <!-- Leaderboard -->
+  <div class="overlay hide" id="leaderboardScreen">
+    <div id="leaderboard">
+      <h2>🏆 Top 5 Leaderboard</h2>
+      <div id="leaderboardList"></div>
+      <button class="btn" onclick="backToMenu()">Kembali</button>
+    </div>
+  </div>
+
+<script>
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  function resizeCanvas() {
+    canvas.width = Math.min(window.innerWidth, 400);
+    canvas.height = Math.min(window.innerHeight, 700);
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  let bird, pipes, score, gameRunning, frameCount;
+  let playerName = '';
+  const gravity = 0.5;
+  const jump = -8;
+  const pipeWidth = 60;
+  const pipeGap = 150;
+  const pipeSpeed = 3;
+
+  function createBird() {
+    return {
+      x: 80,
+      y: canvas.height / 2,
+      width: 34,
+      height: 24,
+      velocity: 0,
+      draw() {
+        // Ganti jadi burung
+        ctx.font = '30px Arial';
+        ctx.fillText('🐦', this.x - 5, this.y + 20);
+      },
+      update() {
+        this.velocity += gravity;
+        this.y += this.velocity;
+        if (this.y + this.height > canvas.height - 50 || this.y < 0) {
+          endGame();
+        }
+      },
+      flap() { this.velocity = jump; }
+    };
+  }
+
+  function createPipe() {
+    const topHeight = Math.random() * (canvas.height - pipeGap - 200) + 50;
+    return {
+      x: canvas.width, top: topHeight, bottom: topHeight + pipeGap, passed: false,
+      draw() {
+        ctx.fillStyle = '#2ECC71';
+        ctx.fillRect(this.x, 0, pipeWidth, this.top);
+        ctx.fillRect(this.x, this.bottom, pipeWidth, canvas.height - this.bottom);
+        ctx.fillStyle = '#27AE60';
+        ctx.fillRect(this.x - 5, this.top - 20, pipeWidth + 10, 20);
+        ctx.fillRect(this.x - 5, this.bottom, pipeWidth + 10, 20);
+      },
+      update() { this.x -= pipeSpeed; }
+    };
+  }
+
+  function startGame() {
+    const nameInput = document.getElementById('playerName');
+    if (!playerName) playerName = nameInput.value.trim() || 'Player';
+    if (playerName.length < 2) { alert('Nama minimal 2 huruf ya!'); return; }
+
+    document.getElementById('startScreen').classList.add('hide');
+    document.getElementById('gameOverScreen').classList.add('hide');
+    document.getElementById('score').classList.remove('hide');
+
+    bird = createBird();
+    pipes = []; score = 0; frameCount = 0; gameRunning = true;
+    updateScore(); gameLoop();
+  }
+
+  function gameLoop() {
+    if (!gameRunning) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#ded895';
+    ctx.fillRect(0, canvas.height - 50, canvas.width, 50);
+
+    if (frameCount % 90 === 0) pipes.push(createPipe());
+
+    for (let i = pipes.length - 1; i >= 0; i--) {
+      pipes[i].update(); pipes[i].draw();
+      if (bird.x + bird.width > pipes[i].x && bird.x < pipes[i].x + pipeWidth &&
+          (bird.y < pipes[i].top || bird.y + bird.height > pipes[i].bottom)) {
+        endGame(); return;
+      }
+      if (!pipes[i].passed && pipes[i].x + pipeWidth < bird.x) {
+        pipes[i].passed = true; score++; updateScore();
+      }
+      if (pipes[i].x + pipeWidth < 0) pipes.splice(i, 1);
+    }
+
+    bird.update(); bird.draw();
+    frameCount++; requestAnimationFrame(gameLoop);
+  }
+
+  function endGame() {
+    gameRunning = false;
+    document.getElementById('finalScore').textContent = score;
+    document.getElementById('gameOverScreen').classList.remove('hide');
+    document.getElementById('score').classList.add('hide');
+    saveScore(playerName, score);
+  }
+
+  function updateScore() { document.getElementById('score').textContent = score; }
+  function flap() { if (gameRunning) bird.flap(); }
+
+  canvas.addEventListener('click', flap);
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); flap(); });
+  document.addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); flap(); } });
+
+  function saveScore(name, score) {
+    let leaderboard = JSON.parse(localStorage.getItem('flappyBirdLeaderboard')) || [];
+    leaderboard.push({ name, score });
+    leaderboard.sort((a, b) => b.score - a.score);
+    leaderboard = leaderboard.slice(0, 5);
+    localStorage.setItem('flappyBirdLeaderboard', JSON.stringify(leaderboard));
+  }
+
+  function showLeaderboard() {
+    const leaderboard = JSON.parse(localStorage.getItem('flappyBirdLeaderboard')) || [];
+    const listEl = document.getElementById('leaderboardList');
+    if (leaderboard.length === 0) {
+      listEl.innerHTML = '<p>Belum ada skor. Main dulu yuk!</p>';
+    } else {
+      listEl.innerHTML = leaderboard.map((item, i) =>
+        `<div class="leaderboard-row">
+          <span>${i + 1}. ${item.name}</span>
+          <span>${item.score}</span>
+        </div>`
+      ).join('');
+    }
+    document.getElementById('startScreen').classList.add('hide');
+    document.getElementById('gameOverScreen').classList.add('hide');
+    document.getElementById('leaderboardScreen').classList.remove('hide');
+  }
+
+  function backToMenu() {
+    document.getElementById('leaderboardScreen').classList.add('hide');
+    document.getElementById('gameOverScreen').classList.add('hide');
+    document.getElementById('startScreen').classList.remove('hide');
+  }
+</script>
+</body>
+</html>
